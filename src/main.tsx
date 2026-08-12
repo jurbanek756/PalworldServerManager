@@ -147,11 +147,9 @@ export default function App() {
 
   return (
     <div className="h-screen bg-slate-950 text-slate-100 flex flex-col font-sans overflow-hidden">
-      {/* Custom Titlebar */}
+      {/* Navigation Titlebar */}
       <WindowsTitlebar
         status={status}
-        serverUrl={savedConfig?.endpoint || ''}
-        storedInWinCred={true}
         onOpenSettings={() => setIsModalOpen(true)}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
