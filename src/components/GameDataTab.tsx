@@ -1,6 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { Database, Search, Copy, Check, ShieldAlert, Cpu, Box, Package, Flame, Sparkles, MapPin, RefreshCw, Layers, Compass, Clock, Activity, Zap, Users, Heart, Hammer, Moon } from 'lucide-react';
+import { Database, Search, Copy, Check, ShieldAlert, Cpu, Box, Package, Flame, Sparkles, MapPin, RefreshCw, Layers, Compass, Clock, Activity, Zap, Users, Heart, Hammer, Moon, BookOpen } from 'lucide-react';
 import { PalworldGameData } from '../types';
+import { PaldexService } from '../services/paldexService';
+import { PaldexEntry } from '../types/paldex';
+import { PalDetailModal } from './PalDetailModal';
 
 interface GameDataTabProps {
   gameData?: PalworldGameData | null;
@@ -58,6 +61,7 @@ export const GameDataTab: React.FC<GameDataTabProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTypeFilter, setActiveTypeFilter] = useState<string>('all');
   const [copiedFlag, setCopiedFlag] = useState(false);
+  const [selectedDossierPal, setSelectedDossierPal] = useState<PaldexEntry | null>(null);
 
   const handleCopyFlag = () => {
     navigator.clipboard.writeText('-enable-gamedata-api');
@@ -425,6 +429,7 @@ export const GameDataTab: React.FC<GameDataTabProps> = ({
             const isPlayer = actor.unitType.toLowerCase() === 'player' || actor.className.toLowerCase().includes('player');
             const isPalBox = actor.actorType.toLowerCase().includes('palbox');
             const isPal = actor.unitType.toLowerCase().includes('pal') || actor.actorType.toLowerCase().includes('character');
+            const paldexEntry = PaldexService.getEntry(actor.name || actor.className || actor.actorType);
 
             return (
               <div 
@@ -458,6 +463,16 @@ export const GameDataTab: React.FC<GameDataTabProps> = ({
                     <span className="text-[10px] font-mono text-cyan-400 block mt-0.5 truncate max-w-[220px]" title={actor.className}>
                       {actor.className || actor.actorType}
                     </span>
+
+                    {paldexEntry && (
+                      <div className="flex items-center gap-1 mt-1">
+                        {paldexEntry.types.map((t, ti) => (
+                          <span key={ti} className="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-cyan-950/80 text-cyan-300 border border-cyan-500/30">
+                            {t.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex flex-col items-end gap-1 shrink-0">
@@ -475,6 +490,16 @@ export const GameDataTab: React.FC<GameDataTabProps> = ({
                       <span className="text-xs font-mono font-bold text-amber-400">
                         Lv. {actor.level}
                       </span>
+                    )}
+
+                    {paldexEntry && (
+                      <button
+                        onClick={() => setSelectedDossierPal(paldexEntry)}
+                        className="mt-1 text-[10px] font-mono text-cyan-400 hover:text-white bg-slate-900 hover:bg-slate-800 px-2 py-0.5 rounded border border-cyan-500/30 transition flex items-center gap-1 cursor-pointer"
+                        title="View Paldex Dossier"
+                      >
+                        <BookOpen className="w-2.5 h-2.5" /> Dossier
+                      </button>
                     )}
                   </div>
                 </div>
@@ -538,6 +563,13 @@ export const GameDataTab: React.FC<GameDataTabProps> = ({
           })}
         </div>
       )}
+
+      {/* Pal Dossier Modal */}
+      <PalDetailModal
+        pal={selectedDossierPal}
+        isOpen={Boolean(selectedDossierPal)}
+        onClose={() => setSelectedDossierPal(null)}
+      />
     </div>
   );
 };

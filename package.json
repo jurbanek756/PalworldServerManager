@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "prepare:paldex": "node scripts/prepare-paldex.js",
+    "prebuild": "npm run prepare:paldex",
     "dev": "vite",
     "build": "tsc && vite build",
     "test": "vitest run",

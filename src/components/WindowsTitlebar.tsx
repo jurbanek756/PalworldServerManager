@@ -1,5 +1,5 @@
 import React from 'react';
-import { Server, RefreshCw, Key, AlertTriangle, SlidersHorizontal, Terminal, Zap } from 'lucide-react';
+import { Server, RefreshCw, Key, AlertTriangle, SlidersHorizontal, Terminal, Zap, BookOpen } from 'lucide-react';
 import { ConnectionStatus } from '../types';
 
 interface WindowsTitlebarProps {
@@ -115,6 +115,18 @@ export const WindowsTitlebar: React.FC<WindowsTitlebarProps> = ({
           >
             <Zap className="w-3.5 h-3.5 text-cyan-400" />
             Pal & World Explorer
+          </button>
+
+          <button
+            onClick={() => setActiveTab('paldex')}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition cursor-pointer ${
+              activeTab === 'paldex'
+                ? 'bg-slate-800 text-white border-l-2 border-cyan-400 font-bold shadow-sm'
+                : 'text-slate-400 hover:text-white hover:bg-slate-900'
+            }`}
+          >
+            <BookOpen className="w-3.5 h-3.5 text-cyan-400" />
+            Paldex Reference
           </button>
 
           <button
