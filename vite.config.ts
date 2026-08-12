@@ -18,6 +18,21 @@ export default defineConfig({
       ignored: ["**/src-tauri/target/**"]
     }
   },
+  build: {
+    chunkSizeWarningLimit: 1500,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('/assets/paldex/')) {
+            return 'paldex-data';
+          }
+          if (id.includes('node_modules/lucide-react') || id.includes('node_modules/motion')) {
+            return 'ui-vendor';
+          }
+        }
+      }
+    }
+  },
   test: {
     include: ["src/**/*.test.{ts,tsx}"],
     exclude: ["**/node_modules/**", "**/tmp/**", "**/src-tauri/**"]

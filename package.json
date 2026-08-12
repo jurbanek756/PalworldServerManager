@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "prepare:paldex": "node scripts/prepare-paldex.js",
+    "predev": "npm run prepare:paldex",
     "prebuild": "npm run prepare:paldex",
     "dev": "vite",
     "build": "tsc && vite build",
