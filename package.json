@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "prepare:paldex": "node scripts/prepare-paldex.js",
+    "version:sync": "node scripts/sync-version.js",
+    "version": "node scripts/sync-version.js && git add src-tauri/tauri.conf.json src-tauri/Cargo.toml",
     "predev": "npm run prepare:paldex",
     "prebuild": "npm run prepare:paldex",
     "dev": "vite",
