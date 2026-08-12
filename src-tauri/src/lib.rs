@@ -626,13 +626,20 @@ fn start_background_monitor(app: &AppHandle, interval_secs: u64) {
     stop_background_monitor(app);
 
     let app_handle = app.clone();
-    let interval_duration = Duration::from_secs(if interval_secs == 0 { 3 } else { interval_secs });
+    let base_secs = if interval_secs == 0 { 3 } else { interval_secs };
 
     let handle = tauri::async_runtime::spawn(async move {
-        let mut interval = tokio::time::interval(interval_duration);
+        let mut consecutive_failures: u32 = 0;
 
         loop {
-            interval.tick().await;
+            let sleep_secs = if consecutive_failures == 0 {
+                base_secs
+            } else {
+                let backoff = base_secs.saturating_mul(1u64 << consecutive_failures.min(5));
+                std::cmp::min(backoff, 30)
+            };
+
+            tokio::time::sleep(Duration::from_secs(sleep_secs)).await;
 
             let config_res = saved_connection(&app_handle);
             let password_res = credentials().and_then(|e| {
@@ -644,9 +651,11 @@ fn start_background_monitor(app: &AppHandle, interval_secs: u64) {
                 (Ok(Some(config)), Ok(password)) => {
                     match snapshot(&config, &password).await {
                         Ok(snap) => {
+                            consecutive_failures = 0;
                             let _ = app_handle.emit("telemetry-update", snap);
                         }
                         Err(err_msg) => {
+                            consecutive_failures = consecutive_failures.saturating_add(1);
                             let _ = app_handle.emit("telemetry-error", err_msg);
                         }
                     }
