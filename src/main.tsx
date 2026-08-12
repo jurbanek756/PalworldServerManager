@@ -22,6 +22,7 @@ import { OverviewTab } from './components/OverviewTab';
 import { PlayersTab } from './components/PlayersTab';
 import { SettingsTab } from './components/SettingsTab';
 import { GameDataTab } from './components/GameDataTab';
+import { PaldexTab } from './components/PaldexTab';
 import { DiagnosticsTab } from './components/DiagnosticsTab';
 import { BroadcastModal } from './components/BroadcastModal';
 import { ServerControlsModal } from './components/ServerControlsModal';
@@ -213,6 +214,10 @@ export default function App() {
             isLoading={isRefreshing}
             onRefresh={() => handleRefresh(false)}
           />
+        )}
+
+        {activeTab === 'paldex' && (
+          <PaldexTab />
         )}
 
         {activeTab === 'diagnostics' && (

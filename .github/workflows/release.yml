@@ -31,6 +31,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Prepare Paldex API Data & Assets
+        run: node scripts/prepare-paldex.js
+
       - name: Build Tauri App & Publish Release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -38,6 +41,6 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Palworld Server Monitor ${{ github.ref_name }}'
-          releaseBody: 'Automated release for Palworld Server Monitor ${{ github.ref_name }}.'
-          releaseDraft: true
+          releaseBody: 'Automated release for Palworld Server Monitor ${{ github.ref_name }}. Includes offline Paldex compendium.'
+          releaseDraft: false
           prerelease: false

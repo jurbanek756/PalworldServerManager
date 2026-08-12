@@ -56,3 +56,9 @@ src-tauri/gen/
 *.db
 # Local Cargo settings
 src-tauri/.cargo/
+
+# Temporary working clone & generated Paldex assets
+tmp/
+public/paldex/
+src/assets/paldex/
+
