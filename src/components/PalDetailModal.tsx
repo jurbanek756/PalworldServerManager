@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, ExternalLink, Flame, Droplets, Zap, Sparkles, Shield, Heart, Activity, Gauge, Award, Layers } from 'lucide-react';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { PaldexEntry } from '../types/paldex';
 import { PaldexService } from '../services/paldexService';
 
@@ -11,6 +12,16 @@ interface PalDetailModalProps {
 
 export const PalDetailModal: React.FC<PalDetailModalProps> = ({ pal, isOpen, onClose }) => {
   if (!isOpen || !pal) return null;
+
+  const handleOpenWiki = async (e: React.MouseEvent, url: string) => {
+    e.preventDefault();
+    try {
+      await openUrl(url);
+    } catch (err) {
+      console.warn('Failed to open URL using tauri plugin-opener, falling back to window.open', err);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  };
 
   const getElementColor = (type: string) => {
     switch (type.toLowerCase()) {
@@ -56,6 +67,7 @@ export const PalDetailModal: React.FC<PalDetailModalProps> = ({ pal, isOpen, onC
                 href={pal.wiki}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={(e) => handleOpenWiki(e, pal.wiki)}
                 className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-cyan-300 rounded transition flex items-center gap-1 text-xs"
                 title="View Official Wiki"
               >
