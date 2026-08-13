@@ -176,7 +176,7 @@ export default function App() {
       />
 
       {/* Main Tabbed View Container */}
-      <main className="flex-1 p-6 max-w-7xl w-full mx-auto overflow-y-auto min-h-0">
+      <main className="flex-1 p-6 w-full overflow-y-auto min-h-0">
         {activeTab === 'overview' && (
           <OverviewTab
             info={snapshot?.info || null}
