@@ -424,7 +424,7 @@ export const GameDataTab: React.FC<GameDataTabProps> = ({
             : 'No world actors matched your search query or filter.'}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
           {filteredActors.map((actor, idx) => {
             const isPlayer = actor.unitType.toLowerCase() === 'player' || actor.className.toLowerCase().includes('player');
             const isPalBox = actor.actorType.toLowerCase().includes('palbox');

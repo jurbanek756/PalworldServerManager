@@ -244,7 +244,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                   </span>
                 </div>
 
-                <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div className="p-4 grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
                   {group.items.map((item) => (
                     <div 
                       key={item.key} 
