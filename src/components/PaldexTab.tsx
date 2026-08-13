@@ -46,6 +46,20 @@ export const PaldexTab: React.FC = () => {
     { id: 'farming', label: '🐄 Farming' },
   ];
 
+  const getElementColor = (type: string) => {
+    switch (type.toLowerCase()) {
+      case 'fire': return 'bg-rose-500/20 text-rose-400 border-rose-500/40';
+      case 'water': return 'bg-cyan-500/20 text-cyan-400 border-cyan-500/40';
+      case 'grass': return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40';
+      case 'electric': return 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40';
+      case 'ice': return 'bg-sky-500/20 text-sky-300 border-sky-500/40';
+      case 'ground': return 'bg-amber-600/20 text-amber-400 border-amber-500/40';
+      case 'dragon': return 'bg-purple-500/20 text-purple-300 border-purple-500/40';
+      case 'dark': return 'bg-slate-700/40 text-slate-300 border-slate-600';
+      default: return 'bg-slate-800 text-slate-300 border-slate-700';
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header Banner */}
@@ -126,12 +140,12 @@ export const PaldexTab: React.FC = () => {
           No Pals matched your filter or search query.
         </div>
       ) : (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4 items-stretch">
           {filteredPals.map((pal) => (
             <div
               key={pal.key}
               onClick={() => setSelectedPal(pal)}
-              className="bg-slate-950 hover:bg-slate-900/90 border border-slate-800 hover:border-cyan-500/50 rounded-xl p-4 transition-all duration-200 cursor-pointer flex flex-col justify-between space-y-3 group shadow-sm hover:shadow-[0_0_15px_rgba(34,211,238,0.1)]"
+              className="bg-slate-950 hover:bg-slate-900/90 border border-slate-800 hover:border-cyan-500/50 rounded-xl p-4 transition-all duration-200 cursor-pointer flex flex-col justify-between h-full space-y-3 group shadow-sm hover:shadow-[0_0_15px_rgba(34,211,238,0.1)]"
             >
               {/* Top Header Row */}
               <div className="flex items-start justify-between gap-2">
@@ -148,7 +162,7 @@ export const PaldexTab: React.FC = () => {
                   {pal.types.map((t, idx) => (
                     <span
                       key={idx}
-                      className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-slate-900 text-slate-300 border border-slate-800"
+                      className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border flex items-center gap-1 ${getElementColor(t.name)}`}
                     >
                       {t.name}
                     </span>
@@ -168,22 +182,23 @@ export const PaldexTab: React.FC = () => {
                 />
               </div>
 
-              {/* Work Suitabilities Row */}
-              <div className="flex items-center gap-1.5 overflow-x-auto pt-1">
-                {pal.suitability.slice(0, 3).map((s, idx) => (
-                  <span
-                    key={idx}
-                    className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-slate-900 text-slate-300 border border-slate-800 flex items-center gap-1 shrink-0"
-                  >
-                    <span className="capitalize">{s.type.replace(/_/g, ' ')}</span>
-                    <span className="text-cyan-400 font-bold">L{s.level}</span>
-                  </span>
-                ))}
-                {pal.suitability.length > 3 && (
-                  <span className="text-[9px] text-slate-500 font-mono">
-                    +{pal.suitability.length - 3}
-                  </span>
-                )}
+              {/* Work Suitabilities Section (Wrapped on new lines, no scrollbar) */}
+              <div className="flex-1 flex flex-col justify-end space-y-1">
+                <span className="text-[9px] font-bold uppercase text-slate-500 tracking-wider font-mono">Work Suitabilities</span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {pal.suitability.map((s, idx) => (
+                    <span
+                      key={idx}
+                      className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-slate-900 text-slate-300 border border-slate-800 flex items-center gap-1"
+                    >
+                      {s.image && (
+                        <img src={s.image} alt={s.type} className="w-3 h-3 object-contain shrink-0" />
+                      )}
+                      <span className="capitalize">{s.type.replace(/_/g, ' ')}</span>
+                      <span className="text-cyan-400 font-bold">L{s.level}</span>
+                    </span>
+                  ))}
+                </div>
               </div>
 
               {/* Base Stats Summary */}

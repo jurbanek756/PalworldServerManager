@@ -218,6 +218,20 @@ export const GameDataTab: React.FC<GameDataTabProps> = ({
     );
   };
 
+  const getElementColor = (type: string) => {
+    switch (type.toLowerCase()) {
+      case 'fire': return 'bg-rose-500/20 text-rose-400 border-rose-500/40';
+      case 'water': return 'bg-cyan-500/20 text-cyan-400 border-cyan-500/40';
+      case 'grass': return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40';
+      case 'electric': return 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40';
+      case 'ice': return 'bg-sky-500/20 text-sky-300 border-sky-500/40';
+      case 'ground': return 'bg-amber-600/20 text-amber-400 border-amber-500/40';
+      case 'dragon': return 'bg-purple-500/20 text-purple-300 border-purple-500/40';
+      case 'dark': return 'bg-slate-700/40 text-slate-300 border-slate-600';
+      default: return 'bg-slate-800 text-slate-300 border-slate-700';
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header Banner */}
@@ -424,7 +438,7 @@ export const GameDataTab: React.FC<GameDataTabProps> = ({
             : 'No world actors matched your search query or filter.'}
         </div>
       ) : (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3 items-stretch">
           {filteredActors.map((actor, idx) => {
             const isPlayer = actor.unitType.toLowerCase() === 'player' || actor.className.toLowerCase().includes('player');
             const isPalBox = actor.actorType.toLowerCase().includes('palbox');
@@ -434,7 +448,10 @@ export const GameDataTab: React.FC<GameDataTabProps> = ({
             return (
               <div 
                 key={idx} 
-                className={`p-4 rounded-lg border flex flex-col justify-between space-y-3 transition ${
+                onClick={() => paldexEntry && setSelectedDossierPal(paldexEntry)}
+                className={`p-4 rounded-lg border flex flex-col justify-between h-full space-y-3 transition ${
+                  paldexEntry ? 'cursor-pointer hover:border-cyan-500/50 group' : ''
+                } ${
                   isPlayer 
                     ? 'bg-slate-950/90 border-cyan-500/40 hover:border-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.1)]' 
                     : isPalBox 
@@ -442,10 +459,16 @@ export const GameDataTab: React.FC<GameDataTabProps> = ({
                     : 'bg-slate-950 hover:bg-slate-900/80 border-slate-800/80 hover:border-slate-700'
                 }`}
               >
+                {/* Card Header Row */}
                 <div className="flex items-start justify-between gap-2">
                   <div className="overflow-hidden">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-white truncate max-w-[200px]" title={actor.name}>
+                      {paldexEntry && (
+                        <span className="text-[10px] font-mono font-bold text-cyan-400 bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-500/30 shrink-0">
+                          #{paldexEntry.key}
+                        </span>
+                      )}
+                      <span className="text-sm font-bold text-white truncate max-w-[180px] group-hover:text-cyan-300 transition" title={actor.name}>
                         {actor.name || actor.actorType || 'Actor'}
                       </span>
                       {actor.isBoss && (
@@ -467,7 +490,7 @@ export const GameDataTab: React.FC<GameDataTabProps> = ({
                     {paldexEntry && (
                       <div className="flex items-center gap-1 mt-1">
                         {paldexEntry.types.map((t, ti) => (
-                          <span key={ti} className="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-cyan-950/80 text-cyan-300 border border-cyan-500/30">
+                          <span key={ti} className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border flex items-center gap-1 ${getElementColor(t.name)}`}>
                             {t.name}
                           </span>
                         ))}
@@ -491,18 +514,55 @@ export const GameDataTab: React.FC<GameDataTabProps> = ({
                         Lv. {actor.level}
                       </span>
                     )}
-
-                    {paldexEntry && (
-                      <button
-                        onClick={() => setSelectedDossierPal(paldexEntry)}
-                        className="mt-1 text-[10px] font-mono text-cyan-400 hover:text-white bg-slate-900 hover:bg-slate-800 px-2 py-0.5 rounded border border-cyan-500/30 transition flex items-center gap-1 cursor-pointer"
-                        title="View Paldex Dossier"
-                      >
-                        <BookOpen className="w-2.5 h-2.5" /> Dossier
-                      </button>
-                    )}
                   </div>
                 </div>
+
+                {/* Pal Paldex Image & Work Suitabilities Block */}
+                {paldexEntry && (
+                  <div className="flex gap-3 bg-slate-900/60 p-2.5 rounded-lg border border-slate-900/80 items-center">
+                    <div className="w-14 h-14 bg-slate-950 rounded-lg border border-slate-800 flex items-center justify-center p-1 shrink-0">
+                      <img
+                        src={paldexEntry.image}
+                        alt={paldexEntry.name}
+                        className="w-full h-full object-contain"
+                        onError={(e) => {
+                          if (paldexEntry.imageWiki) (e.target as HTMLImageElement).src = paldexEntry.imageWiki;
+                        }}
+                      />
+                    </div>
+
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <span className="text-[9px] font-bold uppercase text-slate-400 tracking-wider font-mono block">Work Suitabilities</span>
+                      {paldexEntry.suitability && paldexEntry.suitability.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {paldexEntry.suitability.map((s, si) => {
+                            const audit = PaldexService.auditWorkSuitability(paldexEntry, actor.action || actor.aiAction);
+                            const isMatched = audit.isOptimal && audit.matchedType === s.type;
+                            return (
+                              <span
+                                key={si}
+                                className={`px-1.5 py-0.5 rounded text-[9px] font-mono flex items-center gap-1 border ${
+                                  isMatched
+                                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 font-bold shadow-[0_0_8px_rgba(245,158,11,0.2)]'
+                                    : 'bg-slate-950 text-slate-300 border-slate-800'
+                                }`}
+                                title={isMatched ? `Active task matches ${s.type}` : `${s.type} Level ${s.level}`}
+                              >
+                                {s.image && (
+                                  <img src={s.image} alt={s.type} className="w-3 h-3 object-contain shrink-0" />
+                                )}
+                                <span className="capitalize">{s.type.replace(/_/g, ' ')}</span>
+                                <span className="text-cyan-400 font-bold">L{s.level}</span>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-slate-500 italic">None</span>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* HP Bar if available */}
                 {actor.hp !== undefined && actor.maxHp !== undefined && (
