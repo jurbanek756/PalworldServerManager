@@ -686,6 +686,7 @@ fn stop_monitoring(app: AppHandle) -> Result<(), String> {
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             app.manage(MonitorState::default());
             if let Ok(Some(_)) = saved_connection(app.handle()) {
