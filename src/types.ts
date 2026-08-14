@@ -119,6 +119,45 @@ export interface TestResult {
   details: string;
 }
 
+export interface HabitantHistoryRecord {
+  playerId: string;
+  userId: string;
+  accountName: string;
+  name: string;
+  firstSeen: string;
+  lastSeen: string;
+  totalPlaytimeSeconds: number;
+  lastLevel: number;
+  maxLevel: number;
+  lastIp: string;
+  lastLocationX: number;
+  lastLocationY: number;
+  buildingCount: number;
+  isOnline: boolean;
+  updatedAt: string;
+}
+
+export interface HabitantSessionRecord {
+  id: number;
+  playerId: string;
+  userId: string;
+  name: string;
+  joinedAt: string;
+  leftAt?: string | null;
+  sessionSeconds: number;
+  finalLevel: number;
+  ip: string;
+}
+
+export interface SqliteInfo {
+  dbPath: string;
+  connected: boolean;
+  recordedPlayersCount: number;
+  onlinePlayersCount: number;
+  totalPlaytimeSeconds: number;
+  fileSizeBytes: number;
+}
+
 export * from "./types/ipc";
 export * from "./types/result";
 export * from "./types/guards";

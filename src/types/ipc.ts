@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { ConnectionConfig, Snapshot } from "../types";
+import type { ConnectionConfig, Snapshot, SqliteInfo, HabitantHistoryRecord, HabitantSessionRecord } from "../types";
 
 /**
  * Registry mapping Tauri backend IPC command names to their exact argument & return payloads.
@@ -61,6 +61,18 @@ export interface TauriCommandRegistry {
   fetch_ban_list: {
     args: void;
     return: unknown;
+  };
+  get_sqlite_info: {
+    args: void;
+    return: SqliteInfo;
+  };
+  fetch_habitant_history: {
+    args: void;
+    return: HabitantHistoryRecord[];
+  };
+  fetch_player_sessions: {
+    args: { playerId: string };
+    return: HabitantSessionRecord[];
   };
 }
 

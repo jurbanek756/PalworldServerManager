@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Search, ArrowUp, ArrowDown, MapPin, Crosshair, X, UserMinus, ShieldAlert, Check, AlertTriangle, UserX } from 'lucide-react';
 import { PalworldPlayer } from '../types';
 import { kickPlayer, banPlayer, parseError, formatPing } from '../api';
+import { HabitantHistoryTable } from './HabitantHistoryTable';
 
 interface PlayersTabProps {
   players: PalworldPlayer[];
@@ -298,6 +299,9 @@ export const PlayersTab: React.FC<PlayersTabProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Habitant History (PostgreSQL Database) */}
+      <HabitantHistoryTable />
 
       {/* Moderation Action Prompt Modal */}
       {actionPlayer && (
