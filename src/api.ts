@@ -38,6 +38,13 @@ export const unbanPlayer = (userId: string) =>
 
 export const fetchBanList = () => invokeApi("fetch_ban_list");
 
+export const getSqliteInfo = () => invokeApi("get_sqlite_info");
+
+export const fetchHabitantHistory = () => invokeApi("fetch_habitant_history");
+
+export const fetchPlayerSessions = (playerId: string) =>
+  invokeApi("fetch_player_sessions", { playerId });
+
 export function parseError(errStr: string): ConnectionError {
   const timestamp = new Date().toLocaleTimeString();
 
