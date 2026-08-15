@@ -1,7 +1,4 @@
-import palsData from '../assets/paldex/pals.json';
-import itemData from '../assets/paldex/item.json';
-import breedingData from '../assets/paldex/breeding.json';
-import { PaldexEntry, PalElementKind, PalItem, PalSuitabilityKind } from '../types/paldex';
+import type { PaldexEntry, PalElementKind, PalItem, PalSuitabilityKind } from '../types/paldex';
 
 // Comprehensive Unreal Engine character class string -> Paldex entry name map
 const ENGINE_CLASS_MAP: Record<string, string> = {
@@ -48,23 +45,79 @@ class PaldexServiceClass {
   private palsByKey: Map<string, PaldexEntry> = new Map();
   private itemMap: Map<string, PalItem> = new Map();
   private allPals: PaldexEntry[] = [];
+  private isLoaded = false;
+  private loadPromise: Promise<void> | null = null;
 
-  constructor() {
-    this.allPals = palsData as unknown as PaldexEntry[];
-    this.allPals.forEach((pal) => {
-      this.palsByName.set(pal.name.toLowerCase(), pal);
-      this.palsByKey.set(pal.key, pal);
-    });
+  /**
+   * Asynchronously load Paldex JSON assets on demand via dynamic imports.
+   */
+  async initialize(): Promise<void> {
+    if (this.isLoaded) return;
+    if (this.loadPromise) return this.loadPromise;
 
-    if (Array.isArray(itemData)) {
-      (itemData as unknown as PalItem[]).forEach((item) => {
-        const itemKey = item.id || item.key;
-        if (itemKey) this.itemMap.set(itemKey.toLowerCase(), item);
+    this.loadPromise = (async () => {
+      try {
+        const [palsMod, itemMod] = await Promise.all([
+          import('../assets/paldex/pals.json'),
+          import('../assets/paldex/item.json'),
+        ]);
+
+        const rawPals = (palsMod.default || palsMod) as unknown as PaldexEntry[];
+        const rawItems = (itemMod.default || itemMod) as unknown as PalItem[];
+
+        this.allPals = Array.isArray(rawPals) ? rawPals : [];
+        this.allPals.forEach((pal) => {
+          this.palsByName.set(pal.name.toLowerCase(), pal);
+          this.palsByKey.set(pal.key, pal);
+        });
+
+        if (Array.isArray(rawItems)) {
+          rawItems.forEach((item) => {
+            const itemKey = item.id || item.key;
+            if (itemKey) this.itemMap.set(itemKey.toLowerCase(), item);
+          });
+        }
+        this.isLoaded = true;
+      } catch (err) {
+        console.error('Failed to dynamic import Paldex dataset, falling back to sync require:', err);
+        this.ensureLoadedSync();
+      }
+    })();
+
+    return this.loadPromise;
+  }
+
+  /**
+   * Transparent sync loader fallback ensuring synchronous callers obtain data instantly if async init hasn't completed.
+   */
+  private ensureLoadedSync(): void {
+    if (this.isLoaded) return;
+    try {
+      // Synchronous fallback for test environment or immediate sync access
+      const palsData = require('../assets/paldex/pals.json');
+      const itemData = require('../assets/paldex/item.json');
+
+      this.allPals = (palsData.default || palsData) as unknown as PaldexEntry[];
+      this.allPals.forEach((pal) => {
+        this.palsByName.set(pal.name.toLowerCase(), pal);
+        this.palsByKey.set(pal.key, pal);
       });
+
+      const itemsList = (itemData.default || itemData) as unknown as PalItem[];
+      if (Array.isArray(itemsList)) {
+        itemsList.forEach((item) => {
+          const itemKey = item.id || item.key;
+          if (itemKey) this.itemMap.set(itemKey.toLowerCase(), item);
+        });
+      }
+      this.isLoaded = true;
+    } catch {
+      // Ignored if require unavailable in ESM bundler mode
     }
   }
 
   getAllPals(): PaldexEntry[] {
+    if (!this.isLoaded) this.ensureLoadedSync();
     return this.allPals;
   }
 
@@ -73,6 +126,8 @@ class PaldexServiceClass {
    */
   getEntry(identifier?: string): PaldexEntry | null {
     if (!identifier) return null;
+    if (!this.isLoaded) this.ensureLoadedSync();
+
     const clean = identifier.trim().toLowerCase();
 
     // 1. Direct match by name or key
@@ -104,6 +159,8 @@ class PaldexServiceClass {
     suitabilityType?: PalSuitabilityKind | 'all';
     dropItem?: string;
   }): PaldexEntry[] {
+    if (!this.isLoaded) this.ensureLoadedSync();
+
     return this.allPals.filter((pal) => {
       if (query.elementType && query.elementType !== 'all') {
         if (!pal.types.some(t => t.name === query.elementType)) return false;
@@ -133,6 +190,8 @@ class PaldexServiceClass {
    * Format internal drop key (e.g., "high_quality_pal_oil") into clean title case ("High Quality Pal Oil")
    */
   formatDropName(dropKey: string): string {
+    if (!this.isLoaded) this.ensureLoadedSync();
+
     const item = this.itemMap.get(dropKey.toLowerCase());
     if (item && item.name) return item.name;
     return dropKey
