@@ -45,15 +45,40 @@ export const fetchHabitantHistory = () => invokeApi("fetch_habitant_history");
 export const fetchPlayerSessions = (playerId: string) =>
   invokeApi("fetch_player_sessions", { playerId });
 
-export function parseError(errStr: string): ConnectionError {
+export function parseError(errInput: unknown): ConnectionError {
   const timestamp = new Date().toLocaleTimeString();
+  let errStr = "";
+  let rawCode = "";
+  let rawMessage = "";
+  let rawDetail = "";
 
-  if (errStr.includes("[auth]") || errStr.toLowerCase().includes("credentials")) {
+  if (typeof errInput === "object" && errInput !== null) {
+    const obj = errInput as Record<string, unknown>;
+    if (obj.code) rawCode = String(obj.code);
+    if (obj.message) rawMessage = String(obj.message);
+    if (obj.detail) rawDetail = String(obj.detail);
+    errStr = rawMessage ? `[${rawCode}] ${rawMessage}` : JSON.stringify(errInput);
+  } else if (typeof errInput === "string") {
+    errStr = errInput;
+    try {
+      const parsed = JSON.parse(errInput);
+      if (typeof parsed === "object" && parsed !== null) {
+        if (parsed.code) rawCode = String(parsed.code);
+        if (parsed.message) rawMessage = String(parsed.message);
+        if (parsed.detail) rawDetail = String(parsed.detail);
+      }
+    } catch {
+      // Input is plain text error string
+    }
+  }
+
+  const isAuth = rawCode === "auth" || errStr.includes("[auth]") || errStr.toLowerCase().includes("credentials");
+  if (isAuth) {
     return {
       code: "AUTH_FAILED",
       title: "Authentication Failed (HTTP 401)",
-      message: "The server rejected the username or password specified in your connection settings.",
-      detail: errStr,
+      message: rawMessage || "The server rejected the username or password specified in your connection settings.",
+      detail: rawDetail || errStr,
       troubleshooting: [
         "Verify AdminPassword in your PalWorldSettings.ini file.",
         "Check that username matches 'admin' (default for Palworld REST API).",
@@ -63,12 +88,13 @@ export function parseError(errStr: string): ConnectionError {
     };
   }
 
-  if (errStr.includes("[timeout]")) {
+  const isTimeout = rawCode === "timeout" || errStr.includes("[timeout]");
+  if (isTimeout) {
     return {
       code: "TIMEOUT",
       title: "Connection Timeout",
-      message: "The Palworld REST API endpoint did not respond within the 10-second limit.",
-      detail: errStr,
+      message: rawMessage || "The Palworld REST API endpoint did not respond within the 10-second limit.",
+      detail: rawDetail || errStr,
       troubleshooting: [
         "Verify your Palworld server process is currently running.",
         "Check that RESTAPIEnabled=True is set in PalWorldSettings.ini.",
@@ -78,12 +104,13 @@ export function parseError(errStr: string): ConnectionError {
     };
   }
 
-  if (errStr.includes("[malformed_response]")) {
+  const isMalformed = rawCode === "malformed_response" || errStr.includes("[malformed_response]");
+  if (isMalformed) {
     return {
       code: "MALFORMED_RESPONSE",
       title: "Malformed Response Payload",
-      message: "The server returned data that could not be parsed as valid Palworld JSON.",
-      detail: errStr,
+      message: rawMessage || "The server returned data that could not be parsed as valid Palworld JSON.",
+      detail: rawDetail || errStr,
       troubleshooting: [
         "Ensure you are calling the REST API port (default: 8212), not the game client UDP port (8211).",
         "Check whether a web server (like Nginx or IIS) is occupying the specified HTTP port."
@@ -95,8 +122,8 @@ export function parseError(errStr: string): ConnectionError {
   return {
     code: "SERVER_UNAVAILABLE",
     title: "Palworld Server Unavailable",
-    message: errStr.replace(/^\[.*?\]\s*/, "") || "Could not reach Palworld REST API endpoint.",
-    detail: errStr,
+    message: rawMessage || errStr.replace(/^\[.*?\]\s*/, "") || "Could not reach Palworld REST API endpoint.",
+    detail: rawDetail || errStr,
     troubleshooting: [
       "Ensure RESTAPIEnabled=True is enabled in PalWorldSettings.ini.",
       "Check that your server URL includes http:// or https:// and port number.",

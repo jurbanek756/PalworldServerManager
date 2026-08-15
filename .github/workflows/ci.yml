@@ -53,10 +53,8 @@ jobs:
           cargo check --workspace
           cargo test --workspace
 
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-        continue-on-error: true
-
       - name: Audit Rust dependencies
-        working-directory: src-tauri
-        run: cargo audit
+        uses: rustsec/audit-check-action@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          manifest-path: src-tauri/Cargo.toml

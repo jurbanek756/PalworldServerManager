@@ -1,3 +1,4 @@
+use base64::Engine;
 use keyring::Entry;
 use reqwest::{
     header::{HeaderMap, HeaderValue, AUTHORIZATION},
@@ -10,6 +11,10 @@ use url::Url;
 
 const SERVICE: &str = "Palworld Server Monitor";
 const ACCOUNT: &str = "palworld-rest-api";
+
+pub struct AppDbState(pub std::sync::Mutex<rusqlite::Connection>);
+#[derive(Default)]
+pub struct AppCredentialState(pub std::sync::Mutex<Option<String>>);
 
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -155,10 +160,12 @@ struct Snapshot {
 }
 
 /// Custom application error containing an error code and descriptive message string.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppError {
     pub code: String,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 impl AppError {
@@ -167,17 +174,74 @@ impl AppError {
         Self {
             code: code.into(),
             message: message.into(),
+            detail: None,
+        }
+    }
+
+    pub fn with_detail(code: impl Into<String>, message: impl Into<String>, detail: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+            detail: Some(detail.into()),
         }
     }
 }
 
 impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{}] {}", self.code, self.message)
+        if let Some(detail) = &self.detail {
+            write!(f, "[{}] {} ({})", self.code, self.message, detail)
+        } else {
+            write!(f, "[{}] {}", self.code, self.message)
+        }
     }
 }
 
 impl std::error::Error for AppError {}
+
+fn get_cached_password(app: &AppHandle) -> Result<String, String> {
+    if let Some(state) = app.try_state::<AppCredentialState>() {
+        if let Ok(guard) = state.0.lock() {
+            if let Some(pwd) = guard.as_ref() {
+                return Ok(pwd.clone());
+            }
+        }
+    }
+    let pwd = credentials()?
+        .get_password()
+        .map_err(|_| error("auth", "Saved credentials are unavailable. Connect again."))?;
+
+    if let Some(state) = app.try_state::<AppCredentialState>() {
+        if let Ok(mut guard) = state.0.lock() {
+            *guard = Some(pwd.clone());
+        }
+    }
+    Ok(pwd)
+}
+
+fn set_cached_password(app: &AppHandle, password: Option<String>) {
+    if let Some(state) = app.try_state::<AppCredentialState>() {
+        if let Ok(mut guard) = state.0.lock() {
+            *guard = password;
+        }
+    }
+}
+
+fn with_db<F, R>(app: &AppHandle, f: F) -> Result<R, String>
+where
+    F: FnOnce(&mut rusqlite::Connection) -> Result<R, String>,
+{
+    if let Some(state) = app.try_state::<AppDbState>() {
+        let mut guard = state
+            .0
+            .lock()
+            .map_err(|_| error("db_error", "Failed to acquire database lock."))?;
+        f(&mut guard)
+    } else {
+        let mut conn = open_sqlite_db(app)?;
+        f(&mut conn)
+    }
+}
 
 /// Formats an error code and message into a standardized `[code] message` string.
 fn error(code: &str, message: &str) -> String {
@@ -362,26 +426,7 @@ async fn snapshot(config: &ConnectionConfig, password: &str) -> Result<Snapshot,
     })
 }
 fn base64_encode(input: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
-    for chunk in input.chunks(3) {
-        let n = (u32::from(chunk[0]) << 16)
-            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
-            | u32::from(*chunk.get(2).unwrap_or(&0));
-        out.push(TABLE[((n >> 18) & 63) as usize] as char);
-        out.push(TABLE[((n >> 12) & 63) as usize] as char);
-        out.push(if chunk.len() > 1 {
-            TABLE[((n >> 6) & 63) as usize] as char
-        } else {
-            '='
-        });
-        out.push(if chunk.len() > 2 {
-            TABLE[(n & 63) as usize] as char
-        } else {
-            '='
-        });
-    }
-    out
+    base64::engine::general_purpose::STANDARD.encode(input)
 }
 #[tauri::command]
 fn get_saved_connection(app: AppHandle) -> Result<Option<ConnectionConfig>, String> {
@@ -406,6 +451,7 @@ async fn connect(app: AppHandle, request: ConnectRequest) -> Result<Snapshot, St
             )
         })?;
     save_connection(&app, &config)?;
+    set_cached_password(&app, Some(request.password));
     start_background_monitor(&app, 3);
     Ok(result)
 }
@@ -413,15 +459,14 @@ async fn connect(app: AppHandle, request: ConnectRequest) -> Result<Snapshot, St
 async fn refresh_monitor(app: AppHandle) -> Result<Snapshot, String> {
     let config = saved_connection(&app)?
         .ok_or_else(|| error("bad_request", "Connect to a server first."))?;
-    let password = credentials()?
-        .get_password()
-        .map_err(|_| error("auth", "Saved credentials are unavailable. Connect again."))?;
+    let password = get_cached_password(&app)?;
     snapshot(&config, &password).await
 }
 
 #[tauri::command]
 fn forget_connection(app: AppHandle) -> Result<(), String> {
     stop_background_monitor(&app);
+    set_cached_password(&app, None);
     if let Ok(entry) = credentials() {
         let _ = entry.delete_credential();
     }
@@ -435,9 +480,7 @@ fn forget_connection(app: AppHandle) -> Result<(), String> {
 fn get_auth_client(app: &AppHandle) -> Result<(ConnectionConfig, reqwest::Client), String> {
     let config = saved_connection(app)?
         .ok_or_else(|| error("bad_request", "Connect to a server first."))?;
-    let password = credentials()?
-        .get_password()
-        .map_err(|_| error("auth", "Saved credentials are unavailable. Connect again."))?;
+    let password = get_cached_password(app)?;
     let auth = format!("{}:{}", config.username, password);
     let auth_header = format!("Basic {}", base64_encode(auth.as_bytes()));
     let mut headers = reqwest::header::HeaderMap::new();
@@ -642,10 +685,7 @@ fn start_background_monitor(app: &AppHandle, interval_secs: u64) {
             tokio::time::sleep(Duration::from_secs(sleep_secs)).await;
 
             let config_res = saved_connection(&app_handle);
-            let password_res = credentials().and_then(|e| {
-                e.get_password()
-                    .map_err(|_| error("auth", "Saved credentials are unavailable."))
-            });
+            let password_res = get_cached_password(&app_handle);
 
             match (config_res, password_res) {
                 (Ok(Some(config)), Ok(password)) => {
@@ -805,202 +845,199 @@ fn init_sqlite_tables(conn: &rusqlite::Connection) -> Result<(), String> {
 }
 
 fn sync_players_to_sqlite(app: &AppHandle, players: &[Player], interval_secs: u64) {
-    let mut conn = match open_sqlite_db(app) {
-        Ok(c) => c,
-        Err(_) => return,
-    };
+    let _ = with_db(app, |conn| {
+        let tx = conn
+            .transaction()
+            .map_err(|e| error("db_error", &e.to_string()))?;
 
-    let tx = match conn.transaction() {
-        Ok(t) => t,
-        Err(_) => return,
-    };
+        let now_str = chrono::Utc::now().to_rfc3339();
+        let now_sec = interval_secs as i64;
+        let mut online_player_ids: Vec<String> = Vec::new();
 
-    let now_str = chrono::Utc::now().to_rfc3339();
-    let now_sec = interval_secs as i64;
-    let mut online_player_ids: Vec<String> = Vec::new();
+        for p in players {
+            let p_id = if !p.player_id.is_empty() {
+                p.player_id.clone()
+            } else if !p.user_id.is_empty() {
+                p.user_id.clone()
+            } else {
+                p.name.clone()
+            };
 
-    for p in players {
-        let p_id = if !p.player_id.is_empty() {
-            p.player_id.clone()
-        } else if !p.user_id.is_empty() {
-            p.user_id.clone()
-        } else {
-            p.name.clone()
-        };
+            if p_id.is_empty() {
+                continue;
+            }
 
-        if p_id.is_empty() {
-            continue;
+            online_player_ids.push(p_id.clone());
+
+            let level_i32 = p.level as i32;
+            let b_count_i32 = p.building_count as i32;
+
+            let upsert_query = "
+                INSERT INTO habitant_history (
+                    player_id, user_id, account_name, name, first_seen, last_seen,
+                    total_playtime_seconds, last_level, max_level, last_ip,
+                    last_location_x, last_location_y, building_count, is_online, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7, ?7, ?8, ?9, ?10, ?11, 1, ?5)
+                ON CONFLICT(player_id) DO UPDATE SET
+                    user_id = excluded.user_id,
+                    account_name = excluded.account_name,
+                    name = excluded.name,
+                    last_seen = excluded.last_seen,
+                    total_playtime_seconds = habitant_history.total_playtime_seconds + excluded.total_playtime_seconds,
+                    last_level = excluded.last_level,
+                    max_level = MAX(habitant_history.max_level, excluded.last_level),
+                    last_ip = excluded.last_ip,
+                    last_location_x = excluded.last_location_x,
+                    last_location_y = excluded.last_location_y,
+                    building_count = excluded.building_count,
+                    is_online = 1,
+                    updated_at = excluded.updated_at;
+            ";
+
+            let _ = tx.execute(
+                upsert_query,
+                rusqlite::params![
+                    p_id,
+                    p.user_id,
+                    p.account_name,
+                    p.name,
+                    now_str,
+                    now_sec,
+                    level_i32,
+                    p.ip,
+                    p.location_x,
+                    p.location_y,
+                    b_count_i32
+                ],
+            );
+
+            let has_open_session: bool = tx
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM habitant_sessions WHERE player_id = ?1 AND left_at IS NULL)",
+                    rusqlite::params![p_id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(false);
+
+            if !has_open_session {
+                let _ = tx.execute(
+                    "INSERT INTO habitant_sessions (player_id, user_id, name, joined_at, final_level, ip) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    rusqlite::params![p_id, p.user_id, p.name, now_str, level_i32, p.ip],
+                );
+            } else {
+                let _ = tx.execute(
+                    "UPDATE habitant_sessions SET final_level = ?1, session_seconds = session_seconds + ?2 WHERE player_id = ?3 AND left_at IS NULL",
+                    rusqlite::params![level_i32, now_sec, p_id],
+                );
+            }
         }
 
-        online_player_ids.push(p_id.clone());
-
-        let level_i32 = p.level as i32;
-        let b_count_i32 = p.building_count as i32;
-
-        let upsert_query = "
-            INSERT INTO habitant_history (
-                player_id, user_id, account_name, name, first_seen, last_seen,
-                total_playtime_seconds, last_level, max_level, last_ip,
-                last_location_x, last_location_y, building_count, is_online, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7, ?7, ?8, ?9, ?10, ?11, 1, ?5)
-            ON CONFLICT(player_id) DO UPDATE SET
-                user_id = excluded.user_id,
-                account_name = excluded.account_name,
-                name = excluded.name,
-                last_seen = excluded.last_seen,
-                total_playtime_seconds = habitant_history.total_playtime_seconds + excluded.total_playtime_seconds,
-                last_level = excluded.last_level,
-                max_level = MAX(habitant_history.max_level, excluded.last_level),
-                last_ip = excluded.last_ip,
-                last_location_x = excluded.last_location_x,
-                last_location_y = excluded.last_location_y,
-                building_count = excluded.building_count,
-                is_online = 1,
-                updated_at = excluded.updated_at;
-        ";
-
-        let _ = tx.execute(
-            upsert_query,
-            rusqlite::params![
-                p_id,
-                p.user_id,
-                p.account_name,
-                p.name,
-                now_str,
-                now_sec,
-                level_i32,
-                p.ip,
-                p.location_x,
-                p.location_y,
-                b_count_i32
-            ],
-        );
-
-        let has_open_session: bool = tx
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM habitant_sessions WHERE player_id = ?1 AND left_at IS NULL)",
-                rusqlite::params![p_id],
-                |row| row.get(0),
-            )
-            .unwrap_or(false);
-
-        if !has_open_session {
+        if online_player_ids.is_empty() {
             let _ = tx.execute(
-                "INSERT INTO habitant_sessions (player_id, user_id, name, joined_at, final_level, ip) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                rusqlite::params![p_id, p.user_id, p.name, now_str, level_i32, p.ip],
+                "UPDATE habitant_history SET is_online = 0, updated_at = ?1 WHERE is_online = 1",
+                rusqlite::params![now_str],
+            );
+            let _ = tx.execute(
+                "UPDATE habitant_sessions SET left_at = ?1 WHERE left_at IS NULL",
+                rusqlite::params![now_str],
             );
         } else {
-            let _ = tx.execute(
-                "UPDATE habitant_sessions SET final_level = ?1, session_seconds = session_seconds + ?2 WHERE player_id = ?3 AND left_at IS NULL",
-                rusqlite::params![level_i32, now_sec, p_id],
+            let placeholders: Vec<String> = (0..online_player_ids.len()).map(|i| format!("?{}", i + 2)).collect();
+            let query_history = format!(
+                "UPDATE habitant_history SET is_online = 0, updated_at = ?1 WHERE is_online = 1 AND player_id NOT IN ({})",
+                placeholders.join(",")
             );
-        }
-    }
+            let query_sessions = format!(
+                "UPDATE habitant_sessions SET left_at = ?1 WHERE left_at IS NULL AND player_id NOT IN ({})",
+                placeholders.join(",")
+            );
 
-    if online_player_ids.is_empty() {
-        let _ = tx.execute(
-            "UPDATE habitant_history SET is_online = 0, updated_at = ?1 WHERE is_online = 1",
-            rusqlite::params![now_str],
-        );
-        let _ = tx.execute(
-            "UPDATE habitant_sessions SET left_at = ?1 WHERE left_at IS NULL",
-            rusqlite::params![now_str],
-        );
-    } else {
-        let placeholders: Vec<String> = (0..online_player_ids.len()).map(|i| format!("?{}", i + 2)).collect();
-        let query_history = format!(
-            "UPDATE habitant_history SET is_online = 0, updated_at = ?1 WHERE is_online = 1 AND player_id NOT IN ({})",
-            placeholders.join(",")
-        );
-        let query_sessions = format!(
-            "UPDATE habitant_sessions SET left_at = ?1 WHERE left_at IS NULL AND player_id NOT IN ({})",
-            placeholders.join(",")
-        );
+            let mut params: Vec<&dyn rusqlite::ToSql> = vec![&now_str];
+            for id in &online_player_ids {
+                params.push(id);
+            }
 
-        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&now_str];
-        for id in &online_player_ids {
-            params.push(id);
+            let _ = tx.execute(&query_history, params.as_slice());
+            let _ = tx.execute(&query_sessions, params.as_slice());
         }
 
-        let _ = tx.execute(&query_history, params.as_slice());
-        let _ = tx.execute(&query_sessions, params.as_slice());
-    }
-
-    let _ = tx.commit();
+        tx.commit().map_err(|e| error("db_error", &e.to_string()))?;
+        Ok(())
+    });
 }
 
 #[tauri::command]
 fn get_sqlite_info(app: AppHandle) -> Result<SqliteInfo, String> {
     let path = sqlite_db_path(&app)?;
     let file_size_bytes = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-    let conn = open_sqlite_db(&app)?;
+    with_db(&app, |conn| {
+        let recorded_players_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM habitant_history", [], |r| r.get(0))
+            .unwrap_or(0);
 
-    let recorded_players_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM habitant_history", [], |r| r.get(0))
-        .unwrap_or(0);
+        let online_players_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM habitant_history WHERE is_online = 1", [], |r| r.get(0))
+            .unwrap_or(0);
 
-    let online_players_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM habitant_history WHERE is_online = 1", [], |r| r.get(0))
-        .unwrap_or(0);
+        let total_playtime_seconds: i64 = conn
+            .query_row("SELECT COALESCE(SUM(total_playtime_seconds), 0) FROM habitant_history", [], |r| r.get(0))
+            .unwrap_or(0);
 
-    let total_playtime_seconds: i64 = conn
-        .query_row("SELECT COALESCE(SUM(total_playtime_seconds), 0) FROM habitant_history", [], |r| r.get(0))
-        .unwrap_or(0);
-
-    Ok(SqliteInfo {
-        db_path: path.to_string_lossy().to_string(),
-        connected: true,
-        recorded_players_count,
-        online_players_count,
-        total_playtime_seconds,
-        file_size_bytes,
+        Ok(SqliteInfo {
+            db_path: path.to_string_lossy().to_string(),
+            connected: true,
+            recorded_players_count,
+            online_players_count,
+            total_playtime_seconds,
+            file_size_bytes,
+        })
     })
 }
 
 #[tauri::command]
 fn fetch_habitant_history(app: AppHandle) -> Result<Vec<HabitantHistoryRecord>, String> {
-    let conn = open_sqlite_db(&app)?;
+    with_db(&app, |conn| {
+        let mut stmt = conn
+            .prepare(
+                "SELECT player_id, user_id, account_name, name, first_seen, last_seen,
+                        total_playtime_seconds, last_level, max_level, last_ip,
+                        last_location_x, last_location_y, building_count, is_online, updated_at
+                 FROM habitant_history ORDER BY last_seen DESC LIMIT 500",
+            )
+            .map_err(|e| error("db_error", &format!("Query prep error: {e}")))?;
 
-    let mut stmt = conn
-        .prepare(
-            "SELECT player_id, user_id, account_name, name, first_seen, last_seen,
-                    total_playtime_seconds, last_level, max_level, last_ip,
-                    last_location_x, last_location_y, building_count, is_online, updated_at
-             FROM habitant_history ORDER BY last_seen DESC LIMIT 500",
-        )
-        .map_err(|e| error("db_error", &format!("Query prep error: {e}")))?;
-
-    let rows = stmt
-        .query_map([], |r| {
-            let is_online_int: i32 = r.get(13)?;
-            Ok(HabitantHistoryRecord {
-                player_id: r.get(0)?,
-                user_id: r.get(1)?,
-                account_name: r.get(2)?,
-                name: r.get(3)?,
-                first_seen: r.get(4)?,
-                last_seen: r.get(5)?,
-                total_playtime_seconds: r.get(6)?,
-                last_level: r.get(7)?,
-                max_level: r.get(8)?,
-                last_ip: r.get(9)?,
-                last_location_x: r.get(10)?,
-                last_location_y: r.get(11)?,
-                building_count: r.get(12)?,
-                is_online: is_online_int != 0,
-                updated_at: r.get(14)?,
+        let rows = stmt
+            .query_map([], |r| {
+                let is_online_int: i32 = r.get(13)?;
+                Ok(HabitantHistoryRecord {
+                    player_id: r.get(0)?,
+                    user_id: r.get(1)?,
+                    account_name: r.get(2)?,
+                    name: r.get(3)?,
+                    first_seen: r.get(4)?,
+                    last_seen: r.get(5)?,
+                    total_playtime_seconds: r.get(6)?,
+                    last_level: r.get(7)?,
+                    max_level: r.get(8)?,
+                    last_ip: r.get(9)?,
+                    last_location_x: r.get(10)?,
+                    last_location_y: r.get(11)?,
+                    building_count: r.get(12)?,
+                    is_online: is_online_int != 0,
+                    updated_at: r.get(14)?,
+                })
             })
-        })
-        .map_err(|e| error("db_error", &format!("Query execution error: {e}")))?;
+            .map_err(|e| error("db_error", &format!("Query execution error: {e}")))?;
 
-    let mut records = Vec::new();
-    for r in rows {
-        if let Ok(rec) = r {
-            records.push(rec);
+        let mut records = Vec::new();
+        for r in rows {
+            if let Ok(rec) = r {
+                records.push(rec);
+            }
         }
-    }
 
-    Ok(records)
+        Ok(records)
+    })
 }
 
 #[tauri::command]
@@ -1008,39 +1045,39 @@ fn fetch_player_sessions(
     app: AppHandle,
     player_id: String,
 ) -> Result<Vec<HabitantSessionRecord>, String> {
-    let conn = open_sqlite_db(&app)?;
+    with_db(&app, |conn| {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, player_id, user_id, name, joined_at, left_at, session_seconds, final_level, ip
+                 FROM habitant_sessions WHERE player_id = ?1 ORDER BY joined_at DESC LIMIT 100",
+            )
+            .map_err(|e| error("db_error", &format!("Query prep error: {e}")))?;
 
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, player_id, user_id, name, joined_at, left_at, session_seconds, final_level, ip
-             FROM habitant_sessions WHERE player_id = ?1 ORDER BY joined_at DESC LIMIT 100",
-        )
-        .map_err(|e| error("db_error", &format!("Query prep error: {e}")))?;
-
-    let rows = stmt
-        .query_map(rusqlite::params![player_id], |r| {
-            Ok(HabitantSessionRecord {
-                id: r.get(0)?,
-                player_id: r.get(1)?,
-                user_id: r.get(2)?,
-                name: r.get(3)?,
-                joined_at: r.get(4)?,
-                left_at: r.get(5)?,
-                session_seconds: r.get(6)?,
-                final_level: r.get(7)?,
-                ip: r.get(8)?,
+        let rows = stmt
+            .query_map(rusqlite::params![player_id], |r| {
+                Ok(HabitantSessionRecord {
+                    id: r.get(0)?,
+                    player_id: r.get(1)?,
+                    user_id: r.get(2)?,
+                    name: r.get(3)?,
+                    joined_at: r.get(4)?,
+                    left_at: r.get(5)?,
+                    session_seconds: r.get(6)?,
+                    final_level: r.get(7)?,
+                    ip: r.get(8)?,
+                })
             })
-        })
-        .map_err(|e| error("db_error", &format!("Query execution error: {e}")))?;
+            .map_err(|e| error("db_error", &format!("Query execution error: {e}")))?;
 
-    let mut sessions = Vec::new();
-    for r in rows {
-        if let Ok(s) = r {
-            sessions.push(s);
+        let mut sessions = Vec::new();
+        for r in rows {
+            if let Ok(s) = r {
+                sessions.push(s);
+            }
         }
-    }
 
-    Ok(sessions)
+        Ok(sessions)
+    })
 }
 
 pub fn run() {
@@ -1048,6 +1085,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             app.manage(MonitorState::default());
+            app.manage(AppCredentialState::default());
+            if let Ok(conn) = open_sqlite_db(app.handle()) {
+                app.manage(AppDbState(std::sync::Mutex::new(conn)));
+            }
             if let Ok(Some(_)) = saved_connection(app.handle()) {
                 start_background_monitor(app.handle(), 3);
             }
