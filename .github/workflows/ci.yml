@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ master ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     name: Validate Codebase & Security
@@ -17,7 +21,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: lts/*
+          node-version: '22.x'
           cache: 'npm'
 
       - name: Install Rust
@@ -42,7 +46,6 @@ jobs:
 
       - name: Audit Node dependencies
         run: npm audit --audit-level=high
-        continue-on-error: true
 
       - name: Check Rust compilation & tests
         working-directory: src-tauri
@@ -57,4 +60,3 @@ jobs:
       - name: Audit Rust dependencies
         working-directory: src-tauri
         run: cargo audit
-        continue-on-error: true

@@ -31,9 +31,50 @@ import { TelemetryPoint } from './components/TelemetrySparkline';
 
 import './index.css';
 
+type TelemetryState = {
+  status: ConnectionStatus;
+  telemetryHistory: TelemetryPoint[];
+  lastRefreshType: 'manual' | 'auto' | null;
+  snapshot: Snapshot | null;
+  lastRefreshedAt: string | null;
+  errorDetails: ConnectionError | null;
+};
+
+type TelemetryAction = 
+  | { type: 'APPLY_SNAPSHOT'; payload: { snap: Snapshot; isAuto: boolean; time: string; point: TelemetryPoint } }
+  | { type: 'SET_ERROR'; payload: { error: ConnectionError; status: ConnectionStatus } }
+  | { type: 'SET_STATUS'; payload: ConnectionStatus }
+  | { type: 'CLEAR_ERROR' };
+
+function telemetryReducer(state: TelemetryState, action: TelemetryAction): TelemetryState {
+  switch (action.type) {
+    case 'APPLY_SNAPSHOT':
+      return {
+        ...state,
+        snapshot: action.payload.snap,
+        status: 'connected',
+        errorDetails: null,
+        lastRefreshedAt: action.payload.time,
+        telemetryHistory: [...state.telemetryHistory, action.payload.point].slice(-50),
+        lastRefreshType: action.payload.isAuto ? 'auto' : 'manual'
+      };
+    case 'SET_ERROR':
+      return {
+        ...state,
+        errorDetails: action.payload.error,
+        status: action.payload.status
+      };
+    case 'SET_STATUS':
+      return { ...state, status: action.payload };
+    case 'CLEAR_ERROR':
+      return { ...state, errorDetails: null };
+    default:
+      return state;
+  }
+}
+
 export default function App() {
   const [savedConfig, setSavedConfig] = useState<ConnectionConfig | null>(null);
-  const [status, setStatus] = useState<ConnectionStatus>('idle');
   const [activeTab, setActiveTab] = useState<string>('overview');
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
@@ -43,38 +84,26 @@ export default function App() {
   const [isServerControlsOpen, setIsServerControlsOpen] = useState<boolean>(false);
   const [isBanListOpen, setIsBanListOpen] = useState<boolean>(false);
 
-  // Telemetry History Ring Buffer (up to 50 points)
-  const [telemetryHistory, setTelemetryHistory] = useState<TelemetryPoint[]>([]);
+  const [telemetry, dispatch] = React.useReducer(telemetryReducer, {
+    status: 'idle',
+    telemetryHistory: [],
+    lastRefreshType: null,
+    snapshot: null,
+    lastRefreshedAt: null,
+    errorDetails: null,
+  });
 
-  // Snapshot States
-  const [lastRefreshType, setLastRefreshType] = useState<'manual' | 'auto' | null>(null);
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
-  const [errorDetails, setErrorDetails] = useState<ConnectionError | null>(null);
+  const { status, telemetryHistory, lastRefreshType, snapshot, lastRefreshedAt, errorDetails } = telemetry;
 
   const applySnapshot = useCallback((snap: Snapshot, isAuto: boolean) => {
-    setSnapshot(snap);
-    setStatus('connected');
-    setErrorDetails(null);
-    
     const formattedTime = new Date(snap.refreshedAt).toLocaleTimeString();
-
-    setLastRefreshedAt(formattedTime);
-
     const newPoint: TelemetryPoint = {
       timestamp: formattedTime,
       fps: snap.metrics.serverfps,
       frameTime: snap.metrics.serverframetime,
       playerCount: snap.metrics.currentplayernum,
     };
-
-    setTelemetryHistory((prev) => [...prev, newPoint].slice(-50));
-
-    if (isAuto) {
-      setLastRefreshType('auto');
-    } else {
-      setLastRefreshType('manual');
-    }
+    dispatch({ type: 'APPLY_SNAPSHOT', payload: { snap, isAuto, time: formattedTime, point: newPoint } });
   }, []);
 
   // Refresh handler using native Rust backend API
@@ -82,19 +111,18 @@ export default function App() {
     if (isRefreshing) return;
 
     setIsRefreshing(true);
-    if (!isAuto) setStatus('connecting');
-    setErrorDetails(null);
+    if (!isAuto) dispatch({ type: 'SET_STATUS', payload: 'connecting' });
+    dispatch({ type: 'CLEAR_ERROR' });
 
     try {
       const snap = await refresh();
       applySnapshot(snap, isAuto);
-    } catch (err: any) {
-      const parsed = parseError(typeof err === 'string' ? err : err?.message || 'Failed to refresh server data');
-      setErrorDetails(parsed);
-
-      if (parsed.code === 'AUTH_FAILED') setStatus('auth_failed');
-      else if (parsed.code === 'MALFORMED_RESPONSE') setStatus('malformed_response');
-      else setStatus('server_unavailable');
+    } catch (err: unknown) {
+      const parsed = parseError(err instanceof Error ? err.message : String(err));
+      let newStatus: ConnectionStatus = 'server_unavailable';
+      if (parsed.code === 'AUTH_FAILED') newStatus = 'auth_failed';
+      else if (parsed.code === 'MALFORMED_RESPONSE') newStatus = 'malformed_response';
+      dispatch({ type: 'SET_ERROR', payload: { error: parsed, status: newStatus } });
     } finally {
       setIsRefreshing(false);
     }
@@ -102,22 +130,31 @@ export default function App() {
 
   // Event-driven listener setup for Rust background monitor updates
   useEffect(() => {
+    let unmounted = false;
     let unsubUpdate: (() => void) | null = null;
     let unsubError: (() => void) | null = null;
 
     onTelemetryUpdate((snap: Snapshot) => {
-      applySnapshot(snap, true);
-    }).then((fn: () => void) => { unsubUpdate = fn; }).catch(() => {});
+      if (!unmounted) applySnapshot(snap, true);
+    }).then((fn: () => void) => { 
+      if (unmounted) fn();
+      else unsubUpdate = fn; 
+    }).catch(() => {});
 
     onTelemetryError((errStr: string) => {
+      if (unmounted) return;
       const parsed = parseError(errStr);
-      setErrorDetails(parsed);
-      if (parsed.code === 'AUTH_FAILED') setStatus('auth_failed');
-      else if (parsed.code === 'MALFORMED_RESPONSE') setStatus('malformed_response');
-      else setStatus('server_unavailable');
-    }).then((fn: () => void) => { unsubError = fn; }).catch(() => {});
+      let newStatus: ConnectionStatus = 'server_unavailable';
+      if (parsed.code === 'AUTH_FAILED') newStatus = 'auth_failed';
+      else if (parsed.code === 'MALFORMED_RESPONSE') newStatus = 'malformed_response';
+      dispatch({ type: 'SET_ERROR', payload: { error: parsed, status: newStatus } });
+    }).then((fn: () => void) => { 
+      if (unmounted) fn();
+      else unsubError = fn; 
+    }).catch(() => {});
 
     return () => {
+      unmounted = true;
       if (unsubUpdate) unsubUpdate();
       if (unsubError) unsubError();
     };
@@ -172,7 +209,7 @@ export default function App() {
         error={errorDetails}
         onOpenSettings={() => setIsModalOpen(true)}
         onRefresh={() => handleRefresh(false)}
-        onDismiss={() => setErrorDetails(null)}
+        onDismiss={() => dispatch({ type: 'CLEAR_ERROR' })}
       />
 
       {/* Main Tabbed View Container */}
