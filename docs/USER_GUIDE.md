@@ -1,6 +1,6 @@
 # User & Operator Guide: Palworld Server Monitor
 
-**Palworld Server Monitor** is a dedicated Windows desktop application designed to give Palworld server administrators real-time visibility into server metrics, active players, in-game entity states, and diagnostic health—along with administrative controls to manage server state and moderate players safely.
+**Palworld Server Monitor** is a dedicated Windows desktop application designed to give Palworld server administrators real-time visibility into server metrics, active players, persistent inhabitant session history, Paldex encyclopedic reference data, in-game entity states, and diagnostic health—along with administrative controls to manage server state and moderate players safely.
 
 ---
 
@@ -51,13 +51,25 @@ The primary telemetry dashboard displaying real-time server health updated every
 
 ---
 
-### 👥 Players Tab
-A real-time directory of all currently online players:
+### 👥 Players Tab & Inhabitant History
+A real-time directory of all currently online players and persistent player analytics:
 - **Search Filter**: Instantly search by character name, account name, IP address, or User ID.
 - **Player Details**: View Level, Ping (ms), In-game coordinates (X, Y), and Building Count for each connected player.
 - **Moderation Actions**:
   - **Kick Player**: Disconnects the player with a custom reason message.
   - **Ban Player**: Immediately disconnects and adds the player to the server ban list.
+- **💾 Inhabitant History & Session Inspector**:
+  - Toggle historical inhabitant database records backed by SQLite.
+  - Track total cumulative playtime, first/last seen timestamps, peak level achieved, and individual login/logout session duration history.
+
+---
+
+### 📖 Paldex Tab
+A complete in-app Palworld encyclopedia and reference compendium:
+- **Search Engine**: Search over 137+ Pals by name, ID number, partner skill, or drop material (e.g., *Lamball*, *Pal Oil*, *Meteor*).
+- **Elemental Filtering**: Filter Pals by elemental attribute (*Fire*, *Water*, *Grass*, *Electric*, *Ice*, *Ground*, *Dragon*, *Dark*, *Neutral*).
+- **Work Suitability Filters**: Filter Pals by work type (*Kindling*, *Watering*, *Planting*, *Handiwork*, *Lumbering*, *Mining*, etc.).
+- **Pal Dossier Modal**: Click any Pal card to inspect base stats (HP, Attack, Defense), full drop item tables with drop rates, and partner skills.
 
 ---
 

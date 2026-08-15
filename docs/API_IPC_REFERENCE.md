@@ -1,6 +1,6 @@
 # API & IPC Reference Documentation
 
-This document provides a comprehensive technical reference for all **Tauri IPC Commands**, **TypeScript Helper APIs**, **Tauri Event Subscriptions**, and **Palworld REST API mappings** used by the Palworld Server Monitor desktop application.
+This document provides a comprehensive technical reference for all **17 Tauri IPC Commands**, **TypeScript Helper APIs**, **Tauri Event Subscriptions**, and **Palworld REST API mappings** used by the Palworld Server Monitor desktop application.
 
 ---
 
@@ -26,7 +26,7 @@ All IPC interactions between the React frontend and Rust host process pass throu
 - **Errors**: `[auth]`, `[timeout]`, `[bad_request]`, `[unavailable]`
 
 #### `refresh_monitor`
-- **Description**: Manually triggers a immediate snapshot refresh using the saved endpoint and password retrieved from Windows Credential Manager.
+- **Description**: Manually triggers an immediate snapshot refresh using the saved endpoint and password retrieved from Windows Credential Manager.
 - **Arguments**: None (`void`)
 - **Returns**: `Promise<Snapshot>`
 - **Errors**: `[bad_request]` (if not connected), `[auth]`, `[unavailable]`
@@ -108,6 +108,28 @@ All IPC interactions between the React frontend and Rust host process pass throu
 
 ---
 
+### SQLite History & Analytics Commands
+
+#### `get_sqlite_info`
+- **Description**: Inspects the local SQLite database file (`habitant_history.db`), returning database size, storage path, total record count, and session metrics.
+- **Arguments**: None (`void`)
+- **Returns**: `Promise<SqliteInfo>`
+- **Errors**: `[db_error]`
+
+#### `fetch_habitant_history`
+- **Description**: Queries the local SQLite database table `habitant_history` to retrieve up to 500 aggregated player records (total playtime, first/last seen timestamps, max level, online status).
+- **Arguments**: None (`void`)
+- **Returns**: `Promise<HabitantHistoryRecord[]>`
+- **Errors**: `[db_error]`
+
+#### `fetch_player_sessions`
+- **Description**: Queries the local SQLite database table `habitant_sessions` for session connection intervals (join time, leave time, duration seconds, final level) corresponding to a specific `playerId`.
+- **Arguments**: `{ playerId: string }`
+- **Returns**: `Promise<HabitantSessionRecord[]>`
+- **Errors**: `[db_error]`
+
+---
+
 ## 2. Tauri Event Subscriptions
 
 The application communicates background poller status to the React frontend via Tauri's event system.
@@ -180,6 +202,52 @@ export type PalworldPlayer = {
   level: number;             // Character level
   building_count: number;    // Number of player-owned structures
 };
+```
+
+### `SqliteInfo`
+```ts
+export interface SqliteInfo {
+  path: string;              // Absolute disk path to habitant_history.db
+  fileSizeBytes: number;     // Total file size in bytes
+  totalHistoryRecords: number;// Total distinct player history records
+  totalSessionRecords: number;// Total individual connection session logs
+}
+```
+
+### `HabitantHistoryRecord`
+```ts
+export interface HabitantHistoryRecord {
+  playerId: string;          // Character ID
+  userId: string;            // User ID
+  accountName: string;       // Platform account handle
+  name: string;              // In-game character name
+  firstSeen: string;         // ISO timestamp of first recorded connection
+  lastSeen: string;          // ISO timestamp of most recent connection
+  totalPlaytimeSeconds: number; // Cumulative playtime in seconds
+  lastLevel: number;         // Most recent recorded character level
+  maxLevel: number;          // Peak level achieved
+  lastIp: string;            // Last known client IP address
+  lastLocationX: number;     // Last known X coordinate
+  lastLocationY: number;     // Last known Y coordinate
+  buildingCount: number;     // Current structure count
+  isOnline: boolean;         // Active online state indicator
+  updatedAt: string;         // ISO timestamp of last update
+}
+```
+
+### `HabitantSessionRecord`
+```ts
+export interface HabitantSessionRecord {
+  id: number;                // Primary key ID
+  playerId: string;          // Player character ID
+  userId: string;            // Platform user ID
+  name: string;              // In-game character name
+  joinedAt: string;          // Connection timestamp
+  leftAt: string | null;     // Disconnection timestamp (null if currently online)
+  sessionSeconds: number;    // Total duration of session in seconds
+  finalLevel: number;        // Character level at session end
+  ip: string;                // Connection IP address
+}
 ```
 
 ---
