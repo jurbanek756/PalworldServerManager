@@ -1,6 +1,6 @@
 # Architecture Overview: Palworld Server Monitor
 
-**Palworld Server Monitor** is a low-latency, desktop server management tool built on top of **Tauri v2**, **Rust**, **React 18**, and **TypeScript**. It allows server administrators to monitor server health, observe connected players and game entities, broadcast announcements, manage server state, and moderate players securely over Palworld's REST API.
+**Palworld Server Monitor** is a low-latency, desktop server management tool built on top of **Tauri v2**, **Rust**, **React 19**, and **TypeScript**. It allows server administrators to monitor server health, observe connected players and game entities, explore the Paldex encyclopedia, track historical player activity via SQLite, broadcast announcements, manage server state, and moderate players securely over Palworld's REST API.
 
 ---
 
@@ -8,7 +8,7 @@
 
 ```mermaid
 graph TB
-    subgraph "Frontend Layer (React 18 + TypeScript)"
+    subgraph "Frontend Layer (React 19 + TypeScript)"
         UI["React Desktop UI\n(Vite + Tailwind CSS v4)"]
         State["State Management\n(React Context / Custom Hooks)"]
         IPC_Client["Typed IPC Bridge\n(invokeApi / event listeners)"]
@@ -19,6 +19,7 @@ graph TB
         Poller["Background Telemetry Poller\n(Tokio Async Task, 3s loop)"]
         SecStore["Windows Credential Manager\n(keyring crate)"]
         LocalConf["Application Settings\n(connection.json)"]
+        SQLiteDB["Embedded SQLite Database\n(habitant_history & sessions)"]
     end
 
     subgraph "External Server Layer"
@@ -32,6 +33,7 @@ graph TB
     TauriCore --> Poller
     TauriCore --> SecStore
     TauriCore --> LocalConf
+    TauriCore --> SQLiteDB
     Poller <-->|Async HTTP REST API| RestAPI
     RestAPI <--> PalServer
 ```
@@ -41,24 +43,32 @@ graph TB
 ## 2. Component Layering & Responsibilities
 
 ### Frontend Layer (`src/`)
-- **UI Components (`src/components/`)**:
-  - `OverviewTab.tsx`: Primary dashboard showing Server FPS, Frame Time, Player Count, Uptime, Base Camps, and Days, plus historical telemetry sparklines.
+- **UI Tab Components (`src/components/`)**:
+  - `OverviewTab.tsx`: Primary dashboard showing Server FPS, Frame Time, Player Count, Uptime, Base Camps, and Days, plus historical telemetry sparklines (`TelemetrySparkline.tsx`).
   - `PlayersTab.tsx`: Real-time active player table with search, sorting, detailed stats (Level, Ping, Coordinates, Building Count), and moderation triggers.
+  - `HabitantHistoryTable.tsx`: Persistent historical inhabitant analytics view displaying lifetime playtime, session logs, max level, and first/last seen timestamps.
   - `GameDataTab.tsx`: In-depth breakdown of server actors (Pals, Bosses, Rares, Guilds, HP, AI Actions).
+  - `PaldexTab.tsx`: Searchable 137+ Pal encyclopedia with elemental filters, work suitability badges, base stats, drop items, and detailed Pal dossiers (`PalDetailModal.tsx`).
   - `DiagnosticsTab.tsx`: System health check overview, connection latency status, raw JSON snapshot inspection, and built-in unit test execution.
   - `SettingsTab.tsx`: Server connection details, refresh interval adjustments, and session disconnection tools.
-  - Modals: `ConnectionModal`, `ServerControlsModal`, `BroadcastModal`, `BanListModal`.
+- **Top Bar & Shell Components**:
+  - `WindowsTitlebar.tsx`: Custom native-style Windows header titlebar with tab navigation and status indicators.
+  - `HeaderControls.tsx`: Global actions header bar displaying server name, software version, manual/auto refresh state, and refresh triggers.
+  - `StatusBanner.tsx`: Contextual alert banner presenting structured error messages and troubleshooting actions.
+- **Modals**:
+  - `ConnectionModal.tsx`, `ServerControlsModal.tsx`, `BroadcastModal.tsx`, `BanListModal.tsx`, `PalDetailModal.tsx`.
 - **API & IPC Wrapper (`src/api.ts` & `src/types/ipc.ts`)**:
   - Strongly typed wrappers around Tauri's `invoke` IPC call.
-  - Event listeners (`onTelemetryUpdate`, `onTelemetryError`) that bridge Rust background events directly into React state.
-  - Error parsing utility (`parseError`) converting raw Rust error strings into structured user-friendly `ConnectionError` objects with troubleshooting steps.
+  - Event listeners (`onTelemetryUpdate`, `onTelemetryError`) bridging Rust background events directly into React state.
+  - Error parsing utility (`parseError`) converting raw Rust error strings into structured `ConnectionError` objects.
 
 ### Desktop Host Layer (`src-tauri/`)
 - **Tauri Core & Command Handler (`src-tauri/src/lib.rs`)**:
-  - Implements 14 Tauri command handlers exposed to the frontend via IPC.
-  - Manages thread-safe application state (`MonitorState`) holding the background poller join handle.
+  - Implements **17 Tauri command handlers** exposed to the frontend via IPC (connection, telemetry, server controls, moderation, and SQLite history analytics).
+  - Manages thread-safe application state (`MonitorState`) holding background poller join handles.
   - Handles endpoint normalization (e.g. converting bare IP/host inputs into canonical `/v1/api` REST URLs).
   - Manages secure credential storage using Windows Credential Manager (`keyring` crate).
+  - Manages embedded SQLite persistence (`rusqlite`) for tracking player sessions and lifetime habitant records.
   - Spawns background Tokio monitoring loop that polls telemetry endpoints concurrently every 3 seconds using `tokio::join!` and `tokio::try_join!`.
 
 ---
@@ -76,6 +86,7 @@ sequenceDiagram
     participant Rust as Rust Host (lib.rs)
     participant Cred as Windows Credential Manager
     participant Disk as connection.json
+    participant DB as SQLite DB (habitant_history.db)
     participant API as Palworld REST API
 
     Admin->>UI: Input Endpoint, Username, Password
@@ -86,6 +97,7 @@ sequenceDiagram
     API-->>Rust: 200 OK + Telemetry Data
     Rust->>Cred: Save Password under "Palworld Server Monitor"
     Rust->>Disk: Save connection.json (endpoint & username)
+    Rust->>DB: Upsert player records into habitant_history & sessions
     Rust->>Rust: start_background_monitor(3s)
     Rust-->>UI: Snapshot Payload
     UI-->>Admin: Display Active Dashboard
@@ -96,7 +108,8 @@ sequenceDiagram
 1. **Initialization**: Upon successful connection or app startup (if saved connection exists), `start_background_monitor` spawns an async Tokio background task.
 2. **Execution Interval**: Defaults to every 3 seconds (configurable).
 3. **Concurrent HTTP Requests**: Uses `tokio::join!` to fetch server info (`/info`), metrics (`/metrics`), active players (`/players`), and settings (`/settings`) concurrently, while simultaneously fetching game entity data (`/game-data`).
-4. **Event Emission**:
+4. **SQLite Player Synchronization**: On each successful player poll, active players are logged to the local SQLite database to compute continuous playtime and session durations.
+5. **Event Emission**:
    - On success: Emits Tauri event `telemetry-update` containing the latest `Snapshot`.
    - On failure: Emits Tauri event `telemetry-error` containing formatted error code string.
 
@@ -106,7 +119,7 @@ sequenceDiagram
 
 ```
 +-------------------------------------------------------------------+
-|                        SECURITY ARCHITECTURE                      |
+|                        SECURITY & STORAGE ARCHITECTURE            |
 +-------------------------------------------------------------------+
 |                                                                   |
 |   NON-SENSITIVE CONFIG (Plaintext Disk)                            |
@@ -120,11 +133,16 @@ sequenceDiagram
 |   Account: palworld-rest-api                                      |
 |   Contents: Protected Admin Password                              |
 |                                                                   |
+|   EMBEDDED LOCAL DATABASE (SQLite)                                |
+|   Location: %APPDATA%/com.palworld.servermonitor/habitant_history.db|
+|   Contents: Player playtime, sessions, first/last seen, max level |
+|                                                                   |
 +-------------------------------------------------------------------+
 ```
 
 - **Credential Protection**: Admin passwords are **never** stored in browser `localStorage`, session storage, or plaintext configuration files. They are routed directly to the native OS secure vault (Windows Credential Manager) via the Rust `keyring` crate.
 - **REST API Isolation**: Communication with the server occurs strictly via Basic Authentication headers over HTTP/HTTPS.
+- **Local Analytics Storage**: Historical player data and session tracking are stored locally on the operator's machine using an embedded SQLite database managed by `rusqlite`.
 
 ---
 
@@ -139,3 +157,4 @@ Rust errors are returned as formatted string responses adhering to `[code] messa
 | `malformed_response` | Invalid JSON from server | Malformed Response | Ensure connection is pointing to REST API port (8212), not game UDP port (8211). |
 | `unavailable` | HTTP 5xx or network unreachable | Server Unavailable | Verify host IP/URL, LAN subnet routing, and HTTP scheme (`http://`). |
 | `bad_request` | HTTP 400 or missing fields | Invalid Request | Check request parameters and URL syntax. |
+| `db_error` | SQLite query execution failure | Database Error | Check file permissions in `%APPDATA%`. |
