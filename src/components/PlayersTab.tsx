@@ -63,8 +63,8 @@ export const PlayersTab: React.FC<PlayersTabProps> = ({
       }
       setActionPlayer(null);
       setModReason('');
-    } catch (err: any) {
-      const parsed = parseError(typeof err === 'string' ? err : err?.message || `Failed to ${actionPlayer.type} player.`);
+    } catch (err: unknown) {
+      const parsed = parseError(err instanceof Error ? err.message : String(err));
       setStatusMessage({ type: 'error', text: `${parsed.title}: ${parsed.message}` });
     } finally {
       setIsModifying(false);

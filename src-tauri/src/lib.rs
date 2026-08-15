@@ -652,7 +652,11 @@ fn start_background_monitor(app: &AppHandle, interval_secs: u64) {
                     match snapshot(&config, &password).await {
                         Ok(snap) => {
                             consecutive_failures = 0;
-                            sync_players_to_sqlite(&app_handle, &snap.players, base_secs);
+                            let app_for_sync = app_handle.clone();
+                            let players_for_sync = snap.players.clone();
+                            tokio::task::spawn_blocking(move || {
+                                sync_players_to_sqlite(&app_for_sync, &players_for_sync, base_secs);
+                            });
                             let _ = app_handle.emit("telemetry-update", snap);
                         }
                         Err(err_msg) => {
@@ -792,12 +796,22 @@ fn init_sqlite_tables(conn: &rusqlite::Connection) -> Result<(), String> {
     conn.execute_batch(&format!("{create_history} {create_sessions}"))
         .map_err(|e| error("db_error", &format!("Failed to initialize SQLite tables: {e}")))?;
 
+    let _ = conn.execute_batch("
+        CREATE INDEX IF NOT EXISTS idx_sessions_active ON habitant_sessions(player_id, left_at);
+        CREATE INDEX IF NOT EXISTS idx_history_online ON habitant_history(is_online);
+    ");
+
     Ok(())
 }
 
 fn sync_players_to_sqlite(app: &AppHandle, players: &[Player], interval_secs: u64) {
-    let conn = match open_sqlite_db(app) {
+    let mut conn = match open_sqlite_db(app) {
         Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let tx = match conn.transaction() {
+        Ok(t) => t,
         Err(_) => return,
     };
 
@@ -845,7 +859,7 @@ fn sync_players_to_sqlite(app: &AppHandle, players: &[Player], interval_secs: u6
                 updated_at = excluded.updated_at;
         ";
 
-        let _ = conn.execute(
+        let _ = tx.execute(
             upsert_query,
             rusqlite::params![
                 p_id,
@@ -862,7 +876,7 @@ fn sync_players_to_sqlite(app: &AppHandle, players: &[Player], interval_secs: u6
             ],
         );
 
-        let has_open_session: bool = conn
+        let has_open_session: bool = tx
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM habitant_sessions WHERE player_id = ?1 AND left_at IS NULL)",
                 rusqlite::params![p_id],
@@ -871,12 +885,12 @@ fn sync_players_to_sqlite(app: &AppHandle, players: &[Player], interval_secs: u6
             .unwrap_or(false);
 
         if !has_open_session {
-            let _ = conn.execute(
+            let _ = tx.execute(
                 "INSERT INTO habitant_sessions (player_id, user_id, name, joined_at, final_level, ip) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 rusqlite::params![p_id, p.user_id, p.name, now_str, level_i32, p.ip],
             );
         } else {
-            let _ = conn.execute(
+            let _ = tx.execute(
                 "UPDATE habitant_sessions SET final_level = ?1, session_seconds = session_seconds + ?2 WHERE player_id = ?3 AND left_at IS NULL",
                 rusqlite::params![level_i32, now_sec, p_id],
             );
@@ -884,11 +898,11 @@ fn sync_players_to_sqlite(app: &AppHandle, players: &[Player], interval_secs: u6
     }
 
     if online_player_ids.is_empty() {
-        let _ = conn.execute(
+        let _ = tx.execute(
             "UPDATE habitant_history SET is_online = 0, updated_at = ?1 WHERE is_online = 1",
             rusqlite::params![now_str],
         );
-        let _ = conn.execute(
+        let _ = tx.execute(
             "UPDATE habitant_sessions SET left_at = ?1 WHERE left_at IS NULL",
             rusqlite::params![now_str],
         );
@@ -908,9 +922,11 @@ fn sync_players_to_sqlite(app: &AppHandle, players: &[Player], interval_secs: u6
             params.push(id);
         }
 
-        let _ = conn.execute(&query_history, params.as_slice());
-        let _ = conn.execute(&query_sessions, params.as_slice());
+        let _ = tx.execute(&query_history, params.as_slice());
+        let _ = tx.execute(&query_sessions, params.as_slice());
     }
+
+    let _ = tx.commit();
 }
 
 #[tauri::command]
