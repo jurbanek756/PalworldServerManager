@@ -2495,8 +2495,9 @@ dependencies = [
 
 [[package]]
 name = "palworld-server-monitor"
-version = "0.4.1"
+version = "0.4.3"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "keyring",
  "reqwest 0.12.28",
