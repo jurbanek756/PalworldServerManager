@@ -67,7 +67,7 @@ pub fn forget_connection(app: AppHandle) -> Result<(), String> {
 pub async fn announce_message(app: AppHandle, message: String) -> Result<(), String> {
     let (config, client) = get_auth_client(&app)?;
     let res = client
-        .post(&format!("{}/announce", config.endpoint))
+        .post(format!("{}/announce", config.endpoint))
         .json(&serde_json::json!({ "message": message }))
         .send()
         .await
@@ -82,7 +82,7 @@ pub async fn announce_message(app: AppHandle, message: String) -> Result<(), Str
 pub async fn save_world(app: AppHandle) -> Result<(), String> {
     let (config, client) = get_auth_client(&app)?;
     let res = client
-        .post(&format!("{}/save", config.endpoint))
+        .post(format!("{}/save", config.endpoint))
         .header(reqwest::header::CONTENT_LENGTH, "0")
         .send()
         .await
@@ -105,7 +105,7 @@ pub async fn shutdown_server(
     let msg = message.unwrap_or_else(|| "Server is shutting down.".to_string());
     let (config, client) = get_auth_client(&app)?;
     let res = client
-        .post(&format!("{}/shutdown", config.endpoint))
+        .post(format!("{}/shutdown", config.endpoint))
         .json(&serde_json::json!({ "waittime": wt, "message": msg }))
         .send()
         .await
@@ -120,7 +120,7 @@ pub async fn shutdown_server(
 pub async fn stop_server(app: AppHandle) -> Result<(), String> {
     let (config, client) = get_auth_client(&app)?;
     let res = client
-        .post(&format!("{}/stop", config.endpoint))
+        .post(format!("{}/stop", config.endpoint))
         .header(reqwest::header::CONTENT_LENGTH, "0")
         .send()
         .await
@@ -143,7 +143,7 @@ pub async fn kick_player(
     let msg = message.unwrap_or_default();
     let (config, client) = get_auth_client(&app)?;
     let res = client
-        .post(&format!("{}/kick", config.endpoint))
+        .post(format!("{}/kick", config.endpoint))
         .json(&serde_json::json!({ "userid": uid, "message": msg }))
         .send()
         .await
@@ -166,7 +166,7 @@ pub async fn ban_player(
     let msg = message.unwrap_or_default();
     let (config, client) = get_auth_client(&app)?;
     let res = client
-        .post(&format!("{}/ban", config.endpoint))
+        .post(format!("{}/ban", config.endpoint))
         .json(&serde_json::json!({ "userid": uid, "message": msg }))
         .send()
         .await
@@ -187,7 +187,7 @@ pub async fn unban_player(
     let uid = user_id.or(userId).ok_or_else(|| error("bad_request", "userId is required"))?;
     let (config, client) = get_auth_client(&app)?;
     let res = client
-        .post(&format!("{}/unban", config.endpoint))
+        .post(format!("{}/unban", config.endpoint))
         .json(&serde_json::json!({ "userid": uid }))
         .send()
         .await
@@ -202,7 +202,7 @@ pub async fn unban_player(
 pub async fn fetch_ban_list(app: AppHandle) -> Result<serde_json::Value, String> {
     let (config, client) = get_auth_client(&app)?;
     let res = client
-        .get(&format!("{}/banlist", config.endpoint))
+        .get(format!("{}/banlist", config.endpoint))
         .send()
         .await
         .map_err(|e| error("network", &e.to_string()))?;

@@ -269,10 +269,8 @@ pub fn query_habitant_history(app: &AppHandle) -> Result<Vec<HabitantHistoryReco
             .map_err(|e| error("db_error", &format!("Query execution error: {e}")))?;
 
         let mut records = Vec::new();
-        for r in rows {
-            if let Ok(rec) = r {
-                records.push(rec);
-            }
+        for rec in rows.flatten() {
+            records.push(rec);
         }
 
         Ok(records)
@@ -308,10 +306,8 @@ pub fn query_player_sessions(
             .map_err(|e| error("db_error", &format!("Query execution error: {e}")))?;
 
         let mut sessions = Vec::new();
-        for r in rows {
-            if let Ok(s) = r {
-                sessions.push(s);
-            }
+        for s in rows.flatten() {
+            sessions.push(s);
         }
 
         Ok(sessions)
