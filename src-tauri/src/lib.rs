@@ -2,6 +2,7 @@ pub mod api;
 pub mod commands;
 pub mod db;
 pub mod models;
+pub mod tray;
 
 use api::{saved_connection, start_background_monitor, AppCredentialState, MonitorState};
 use db::{open_sqlite_db, AppDbState};
@@ -19,7 +20,16 @@ pub fn run() {
             if let Ok(Some(_)) = saved_connection(app.handle()) {
                 start_background_monitor(app.handle(), 3);
             }
+            if let Err(e) = tray::create_tray(app.handle()) {
+                eprintln!("Failed to create system tray: {e}");
+            }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_saved_connection,

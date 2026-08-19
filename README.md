@@ -29,6 +29,7 @@ A high-performance Windows desktop monitoring and server administration applicat
 - 🎮 **Game Entity Inspector**: Deep breakdown of world actors (Pals, Bosses, Rare/Lucky Pals, Guilds, HP, AI Actions).
 - 📢 **In-Game Announcements**: Broadcast server-wide system messages directly to active players.
 - ⚙️ **Server Administration**: Remote world state saving (`/save`), scheduled graceful shutdowns with custom delays and messages (`/shutdown`), and emergency stop (`/stop`).
+- 🗔 **Windows System Tray & Close-to-Tray**: Minimizes to the Windows taskbar tray (notification area `^` menu) on window close ("X"), keeping background monitoring and SQLite telemetry active without cluttering the screen.
 - 🔒 **Enterprise-Grade Security**: Passwords saved securely in **Windows Credential Manager** via the Rust `keyring` crate. Passwords are never stored in plaintext or browser storage.
 
 ---
