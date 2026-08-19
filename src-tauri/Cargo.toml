@@ -22,7 +22,7 @@ url = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 tauri-plugin-opener = "2"
 rusqlite = { version = "0.32", features = ["bundled", "chrono"] }
-base64 = "0.22"
+base64 = "0.23"
 
 [profile.release]
 lto = true
